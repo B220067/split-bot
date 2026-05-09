@@ -10,7 +10,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     
-    /* Change these two lines */
     "noEmit": false,
     "outDir": "./dist",
     

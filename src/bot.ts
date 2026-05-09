@@ -624,7 +624,7 @@ async function main() {
     await prisma.$connect();
     console.log("Database connected successfully");
 
-    const PORT = process.env.PORT || 8080;
+    const PORT = process.env.PORT || 10000;
     http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("Bot is alive!");

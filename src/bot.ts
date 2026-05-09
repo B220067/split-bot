@@ -1,9 +1,10 @@
 import "dotenv/config";
 
+import * as http from "http";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { randomInt } from "node:crypto";
 import { Bot, Context, session, SessionFlavor } from "grammy";
-import { conversations, createConversation, ConversationFlavor, Conversation } from "@grammyjs/conversations";
+import { type ConversationFlavor, conversations, createConversation, type Conversation } from "@grammyjs/conversations";
 import {
   calculateTripBalances,
   formatMoney,
@@ -26,14 +27,15 @@ const prisma = new PrismaClient();
 
 type SessionData = {
   currencyChoice?: string;
+  conversation?: any;
 };
 
-type MyContext = Context & SessionFlavor<SessionData> & ConversationFlavor;
-type MyConversation = Conversation<MyContext>;
+type MyContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;
+type MyConversation = Conversation<MyContext, MyContext>;
 
 const bot = new Bot<MyContext>(TELEGRAM_BOT_TOKEN);
 bot.use(session({ initial: () => ({}) }));
-bot.use(conversations<MyContext>());
+bot.use(conversations());
 
 type TelegramUserPayload = {
   id: number;
@@ -618,8 +620,27 @@ bot.catch((error) => {
 });
 
 async function main() {
-  await prisma.$connect();
-  await bot.start();
+  try {
+    await prisma.$connect();
+    console.log("Database connected successfully");
+
+    const PORT = process.env.PORT || 8080;
+    http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("Bot is alive!");
+    }).listen(PORT, () => {
+      console.log(`Keep-alive server listening on port ${PORT}`);
+    });
+
+    console.log("Bot is starting...");
+    await bot.start();
+
+  } catch (error) {
+    console.error("Failed to start:", error);
+    process.exit(1);
+  }
 }
+
+main();
 
 void main();

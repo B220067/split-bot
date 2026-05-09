@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id               String            @id @default(cuid())
+  telegramId       String            @unique
+  displayName      String?
+  username         String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  createdTrips     Trip[]
+  tripParticipants TripParticipant[]
+  paidExpenses     Expense[]         @relation("ExpensePayer")
+  expenseShares    ExpenseShare[]
+  debtsOwed        SettlementDebt[]  @relation("DebtorUser")
+  debtsToReceive   SettlementDebt[]  @relation("CreditorUser")
+}
+
+model Trip {
+  id           String            @id @default(cuid())
+  code         String            @unique @db.VarChar(6)
+  name         String
+  currency     String            @default("$")
+  isCollated   Boolean           @default(false)
+  createdById   String
+  createdBy    User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  participants TripParticipant[]
+  expenses     Expense[]
+  debts        SettlementDebt[]
+
+  @@index([code])
+  @@index([createdById])
+}
+
+model TripParticipant {
+  id         String   @id @default(cuid())
+  tripId     String
+  userId     String
+  joinedAt   DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  trip       Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, userId])
+  @@index([tripId])
+  @@index([userId])
+  @@index([userId, lastUsedAt])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  tripId      String
+  payerId     String
+  amount      Decimal  @db.Decimal(10, 2)
+  description String
+  createdAt   DateTime @default(now())
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  payer       User     @relation("ExpensePayer", fields: [payerId], references: [id], onDelete: Restrict)
+  shares      ExpenseShare[]
+
+  @@index([tripId])
+  @@index([payerId])
+  @@index([tripId, createdAt])
+}
+
+model ExpenseShare {
+  id        String   @id @default(cuid())
+  expenseId String
+  userId    String
+  amount    Decimal  @db.Decimal(10, 2)
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([expenseId, userId])
+  @@index([userId])
+}
+
+model SettlementDebt {
+  id         String   @id @default(cuid())
+  tripId     String
+  debtorId   String
+  creditorId String
+  amount     Decimal  @db.Decimal(10, 2)
+  isPaid     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  trip       Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  debtor     User     @relation("DebtorUser", fields: [debtorId], references: [id], onDelete: Cascade)
+  creditor   User     @relation("CreditorUser", fields: [creditorId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([debtorId])
+  @@index([creditorId])
+}

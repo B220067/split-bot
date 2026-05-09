@@ -127,7 +127,12 @@ async function resolveTripByCode(code: string) {
 // ─── CONVERSATIONS ───
 
 async function createTripConversation(conversation: MyConversation, ctx: MyContext) {
-  const tripName = typeof ctx.match === 'string' ? ctx.match.trim() : '';
+  let tripName = typeof ctx.match === 'string' ? ctx.match.trim() : '';
+  
+  if (!tripName && ctx.message?.text) {
+    tripName = ctx.message.text.replace(/^\/create\s+/i, "").trim();
+    if (tripName === "/create") tripName = "";
+  }
 
   if (!tripName) {
     await ctx.reply("Usage: /create [trip_name]");

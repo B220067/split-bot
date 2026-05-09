@@ -9,9 +9,13 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noEmit": true,
+    
+    /* Change these two lines */
+    "noEmit": false,
+    "outDir": "./dist",
+    
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "prisma/**/*.prisma"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

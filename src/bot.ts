@@ -3,7 +3,7 @@ import "dotenv/config";
 import * as http from "http";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { randomInt } from "node:crypto";
-import { Bot, Context, session, SessionFlavor } from "grammy";
+import { Bot, Context, GrammyError, session, SessionFlavor, webhookCallback } from "grammy";
 import { type ConversationFlavor, conversations, createConversation, type Conversation } from "@grammyjs/conversations";
 import {
   calculateTripBalances,
@@ -14,6 +14,13 @@ import {
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? process.env.BOT_TOKEN;
 const DATABASE_URL = process.env.DATABASE_URL;
+const PORT = Number(process.env.PORT ?? 8080);
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH ?? "/telegram/webhook";
+const WEBHOOK_URL =
+  process.env.WEBHOOK_URL ??
+  (process.env.RENDER_EXTERNAL_HOSTNAME
+    ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}${WEBHOOK_PATH}`
+    : undefined);
 
 if (!TELEGRAM_BOT_TOKEN) {
   throw new Error("Missing TELEGRAM_BOT_TOKEN environment variable.");
@@ -139,11 +146,40 @@ async function createTripConversation(conversation: MyConversation, ctx: MyConte
     return;
   }
 
+  const user = await conversation.external(() => getOrCreateUser(ctx));
+
+  const activeTrip = await conversation.external(() =>
+    prisma.tripParticipant.findFirst({
+      where: {
+        userId: user.id,
+        trip: { isCollated: false }
+      },
+      include: { trip: true }
+    })
+  );
+
+  if (activeTrip) {
+    await ctx.reply(`❌ You are already in an active trip ("${activeTrip.trip.name}"). You must wait for it to be finalized/collated before creating a new one.`);
+    return;
+  }
+
+  const existingTrip = await conversation.external(() => 
+    prisma.trip.findFirst({
+      where: { 
+        name: { equals: tripName, mode: 'insensitive' } 
+      }
+    })
+  );
+
+  if (existingTrip) {
+    await ctx.reply(`❌ A trip named "${tripName}" already exists. Please choose a different name.`);
+    return;
+  }
+
   await ctx.reply("What currency do you want to use? (e.g., SGD$, MYR$ etc. This will be shown in front of all debts.)");
   const currencyCtx = await conversation.wait();
   const currency = parseCommandText(currencyCtx.message?.text).slice(0, 10) || "$";
 
-  const user = await getOrCreateUser(ctx);
 
   let trip: Awaited<ReturnType<typeof prisma.trip.create>> | null = null;
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -187,7 +223,7 @@ async function createTripConversation(conversation: MyConversation, ctx: MyConte
     return;
   }
 
-  await ctx.reply(`✅ Created trip "<b>${trip.name}</b>" (${currency})\nCode: <code>${trip.code}</code>\n\nShare this code for others to join!`, { parse_mode: 'HTML' });
+  await ctx.reply(`🤩 Created trip "<b>${trip.name}</b>" (${currency})\nCode: <code>${trip.code}</code>\n\nShare this code for others to join!`, { parse_mode: 'HTML' });
 }
 
 async function addExpenseConversation(conversation: MyConversation, ctx: MyContext) {
@@ -401,6 +437,21 @@ bot.command("join", async (ctx) => {
 
   if (!trip) {
     await ctx.reply("Invalid trip code. Ask the trip owner for the correct code.");
+    return;
+  }
+
+  // Prevent users from joining a different active trip while they already
+  // belong to an active (not-collated) trip. Rejoining the same trip is allowed.
+  const activeTrip = await prisma.tripParticipant.findFirst({
+    where: {
+      userId: user.id,
+      trip: { isCollated: false },
+    },
+    include: { trip: true },
+  });
+
+  if (activeTrip && activeTrip.tripId !== trip.id) {
+    await ctx.reply(`❌ You are already in an active trip ("${activeTrip.trip.name}"). Please finalize it before joining another.`);
     return;
   }
 
@@ -624,21 +675,62 @@ bot.catch((error) => {
   console.error("Bot error:", error.error);
 });
 
+function startHttpServer(enableWebhook: boolean): Promise<http.Server> {
+  const webhookHandler = webhookCallback(bot, "http");
+
+  const server = http.createServer((req, res) => {
+    const requestUrl = req.url ? new URL(req.url, "http://localhost") : null;
+
+    if (enableWebhook && req.method === "POST" && requestUrl?.pathname === WEBHOOK_PATH) {
+      void webhookHandler(req, res);
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Bot is alive!");
+  });
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(PORT, () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
+}
+
 async function main() {
   try {
     await prisma.$connect();
     console.log("Database connected successfully");
 
-    const PORT = process.env.PORT || 8080;
-    http.createServer((req, res) => {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("Bot is alive!");
-    }).listen(PORT, () => {
-      console.log(`Keep-alive server listening on port ${PORT}`);
-    });
+    const useWebhook = Boolean(WEBHOOK_URL);
+    await startHttpServer(useWebhook);
+    console.log(`Keep-alive server listening on port ${PORT}`);
 
-    console.log("Bot is starting...");
-    await bot.start();
+    if (useWebhook && WEBHOOK_URL) {
+      await bot.api.setWebhook(WEBHOOK_URL);
+      console.log(`Bot is starting in webhook mode on path ${WEBHOOK_PATH}`);
+      console.log(`Webhook set to ${WEBHOOK_URL}`);
+      return;
+    }
+
+    await bot.api.deleteWebhook({ drop_pending_updates: false });
+    console.log("Bot is starting in polling mode...");
+
+    try {
+      await bot.start();
+    } catch (error) {
+      if (error instanceof GrammyError && error.error_code === 409) {
+        console.error(
+          "Polling conflict (409): another bot instance is already using getUpdates. " +
+            "This process will stay alive for health checks, but will not receive updates until the other instance stops.",
+        );
+        return;
+      }
+
+      throw error;
+    }
 
   } catch (error) {
     console.error("Failed to start:", error);

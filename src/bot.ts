@@ -148,17 +148,9 @@ async function createTripConversation(conversation: MyConversation, ctx: MyConte
 
   const user = await conversation.external(() => getOrCreateUser(ctx));
 
-  const activeTrip = await conversation.external(() =>
-    prisma.tripParticipant.findFirst({
-      where: {
-        userId: user.id,
-        trip: { isCollated: false }
-      },
-      include: { trip: true }
-    })
-  );
+  const activeTrip = await conversation.external(() => getCurrentTripParticipant(user.id));
 
-  if (activeTrip) {
+  if (activeTrip && !activeTrip.trip.isCollated) {
     await ctx.reply(`❌ You are already in an active trip ("${activeTrip.trip.name}"). You must wait for it to be finalized/collated before creating a new one.`);
     return;
   }
@@ -442,15 +434,9 @@ bot.command("join", async (ctx) => {
 
   // Prevent users from joining a different active trip while they already
   // belong to an active (not-collated) trip. Rejoining the same trip is allowed.
-  const activeTrip = await prisma.tripParticipant.findFirst({
-    where: {
-      userId: user.id,
-      trip: { isCollated: false },
-    },
-    include: { trip: true },
-  });
+  const activeTrip = await getCurrentTripParticipant(user.id);
 
-  if (activeTrip && activeTrip.tripId !== trip.id) {
+  if (activeTrip && !activeTrip.trip.isCollated && activeTrip.tripId !== trip.id) {
     await ctx.reply(`❌ You are already in an active trip ("${activeTrip.trip.name}"). Please finalize it before joining another.`);
     return;
   }

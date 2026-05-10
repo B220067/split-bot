@@ -139,7 +139,7 @@ async function createTripConversation(conversation: MyConversation, ctx: MyConte
     return;
   }
 
-  await ctx.reply("What currency will you use? (e.g., USD, EUR, GBP, or just $, €, £)");
+  await ctx.reply("What currency do you want to use? (e.g., SGD$, MYR$ etc. This will be shown in front of all debts.)");
   const currencyCtx = await conversation.wait();
   const currency = parseCommandText(currencyCtx.message?.text).slice(0, 10) || "$";
 
@@ -187,7 +187,7 @@ async function createTripConversation(conversation: MyConversation, ctx: MyConte
     return;
   }
 
-  await ctx.reply(`✅ Created trip "${trip.name}" (${currency})\nCode: \`${trip.code}\`\n\nShare this code for others to join!`, { parse_mode: 'MarkdownV2' });
+  await ctx.reply(`✅ Created trip "<b>${trip.name}</b>" (${currency})\nCode: <code>${trip.code}</code>\n\nShare this code for others to join!`, { parse_mode: 'HTML' });
 }
 
 async function addExpenseConversation(conversation: MyConversation, ctx: MyContext) {
@@ -297,7 +297,7 @@ async function addExpenseConversation(conversation: MyConversation, ctx: MyConte
 
     for (const participant_item of eligibleParticipants) {
       const displayName = participant_item.user.displayName?.trim() || `@${participant_item.user.username}`;
-      await ctx.reply(`How much of the ${participant.trip.currency}${formatMoney(amountCents).slice(1)} did ${displayName} use? (${participant.trip.currency}${formatMoney(remainingAmount).slice(1)} remaining)`);
+      await ctx.reply(`How much of the ${formatMoney(amountCents, participant.trip.currency)} did ${displayName} use? (${formatMoney(remainingAmount, participant.trip.currency)} remaining)`);
       const shareCtx = await conversation.wait();
       const shareStr = parseCommandText(shareCtx.message?.text);
 
@@ -320,7 +320,7 @@ async function addExpenseConversation(conversation: MyConversation, ctx: MyConte
     
     const sumCents = shares.reduce((a, b) => a + b.amountCents, 0);
     if(sumCents !== amountCents) {
-       await ctx.reply(`Warning: The custom parts sum to ${formatMoney(sumCents)} instead of ${formatMoney(amountCents)}. Using custom sums.`);
+       await ctx.reply(`Warning: The custom parts sum to ${formatMoney(sumCents, participant.trip.currency)} instead of ${formatMoney(amountCents, participant.trip.currency)}. Using custom sums.`);
     }
   }
 
@@ -351,7 +351,7 @@ async function addExpenseConversation(conversation: MyConversation, ctx: MyConte
 
   await ctx.reply(
     [
-      `✅ Added ${participant.trip.currency}${formatMoney(amountCents).slice(1)} for "${description}"`,
+      `✅ Added ${formatMoney(amountCents, participant.trip.currency)} for "${description}"`,
       `Split among ${eligibleParticipants.length} participant(s).`,
       settlement.length > 0
         ? `Settlement transactions needed: ${settlement.length}`
@@ -544,7 +544,7 @@ bot.command("paid", async (ctx) => {
   });
 
   await ctx.reply(
-    `✅ Marked ${participant.trip.currency}${formatMoney(Math.round(debt.amount.toNumber() * 100)).slice(1)} payment to ${creditorParticipant.user.displayName || creditorParticipant.user.username} as paid.`,
+    `✅ Marked ${formatMoney(Math.round(debt.amount.toNumber() * 100), participant.trip.currency)} payment to ${creditorParticipant.user.displayName || creditorParticipant.user.username} as paid.`,
   );
 });
 
@@ -576,7 +576,7 @@ bot.command("status", async (ctx) => {
         statusText.push("💰 Current Unofficial Debts:");
         for (const debt of dynamicDebts) {
           statusText.push(
-            `  ${debt.fromDisplayName} owes ${debt.toDisplayName}: ${participant.trip.currency}${debt.amount.replace("$", "")}`
+            `  ${debt.fromDisplayName} owes ${debt.toDisplayName}: ${debt.amount}`
           );
         }
      }
@@ -600,7 +600,7 @@ bot.command("status", async (ctx) => {
         statusText.push("💰 Unpaid:");
         for (const debt of unpaidDebts) {
           statusText.push(
-            `  [Unpaid] ${debt.debtor.displayName} owes ${debt.creditor.displayName}: ${participant.trip.currency}${formatMoney(Math.round(debt.amount.toNumber() * 100)).slice(1)}`,
+            `  [Unpaid] ${debt.debtor.displayName} owes ${debt.creditor.displayName}: ${formatMoney(Math.round(debt.amount.toNumber() * 100), participant.trip.currency)}`,
           );
         }
       }
@@ -610,7 +610,7 @@ bot.command("status", async (ctx) => {
         statusText.push("✅ Paid:");
         for (const debt of paidDebts) {
           statusText.push(
-            `  [Paid] ${debt.debtor.displayName} → ${debt.creditor.displayName}: ${participant.trip.currency}${formatMoney(Math.round(debt.amount.toNumber() * 100)).slice(1)}`,
+            `  [Paid] ${debt.debtor.displayName} → ${debt.creditor.displayName}: ${formatMoney(Math.round(debt.amount.toNumber() * 100), participant.trip.currency)}`,
           );
         }
       }

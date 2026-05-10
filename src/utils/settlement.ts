@@ -34,12 +34,12 @@ function centsToAmount(cents: number): string {
   return `${cents < 0 ? "-" : ""}${dollars}.${remainder}`;
 }
 
-export function formatMoney(cents: number): string {
-  return `$${centsToAmount(cents)}`;
+export function formatMoney(cents: number, currency: string = "$"): string {
+  return `${currency}${centsToAmount(cents)}`;
 }
 
 export function parseAmountToCents(input: string): number {
-  const normalized = input.trim().replace(/^\$/, "");
+  const normalized = input.trim().replace(/^[^\d]+/, "");
   if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
     throw new Error("Amount must be a positive number with up to 2 decimal places.");
   }
@@ -68,7 +68,7 @@ function splitAmountEvenly(amountCents: number, participantCount: number): numbe
   return Array.from({ length: participantCount }, (_, index) => baseShare + (index < remainder ? 1 : 0));
 }
 
-function buildBalanceMap(participants: TripParticipantWithUser[]): Map<string, TripBalance> {
+function buildBalanceMap(participants: TripParticipantWithUser[], currency: string): Map<string, TripBalance> {
   return new Map(
     participants.map((participant) => [
       participant.userId,
@@ -77,20 +77,26 @@ function buildBalanceMap(participants: TripParticipantWithUser[]): Map<string, T
         displayName: toDisplayName(participant.user),
         username: participant.user.username,
         cents: 0,
-        amount: formatMoney(0),
+        amount: formatMoney(0, currency),
       },
     ]),
   );
 }
 
-function normalizeBalances(balanceMap: Map<string, TripBalance>): TripBalance[] {
+function normalizeBalances(balanceMap: Map<string, TripBalance>, currency: string): TripBalance[] {
   return Array.from(balanceMap.values()).map((balance) => ({
     ...balance,
-    amount: formatMoney(balance.cents),
+    amount: formatMoney(balance.cents, currency),
   }));
 }
 
 export async function calculateTripBalances(prisma: PrismaClient, tripId: string): Promise<TripBalance[]> {
+  const tripInfo = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { currency: true }
+  });
+  const currency = tripInfo?.currency || "$";
+
   const [participants, expenses] = await Promise.all([
     prisma.tripParticipant.findMany({
       where: { tripId },
@@ -108,7 +114,7 @@ export async function calculateTripBalances(prisma: PrismaClient, tripId: string
     }),
   ]);
 
-  const balanceMap = buildBalanceMap(participants);
+  const balanceMap = buildBalanceMap(participants, currency);
 
   if (participants.length === 0) {
     return [];
@@ -160,10 +166,16 @@ export async function calculateTripBalances(prisma: PrismaClient, tripId: string
     }
   }
 
-  return normalizeBalances(balanceMap);
+  return normalizeBalances(balanceMap, currency);
 }
 
 export async function simplifyDebts(prisma: PrismaClient, tripId: string): Promise<SettlementTransaction[]> {
+  const tripInfo = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { currency: true }
+  });
+  const currency = tripInfo?.currency || "$";
+
   const balances = await calculateTripBalances(prisma, tripId);
   const creditors = balances
     .filter((balance) => balance.cents > 0)
@@ -187,7 +199,7 @@ export async function simplifyDebts(prisma: PrismaClient, tripId: string): Promi
       toUserId: creditor.userId,
       toDisplayName: creditor.displayName,
       cents: transferCents,
-      amount: formatMoney(transferCents),
+      amount: formatMoney(transferCents, currency),
     });
 
     creditor.cents -= transferCents;
